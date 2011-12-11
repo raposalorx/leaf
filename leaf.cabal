@@ -1,0 +1,24 @@
+Name:               leaf
+Version:            0.0
+License:            BSD3
+License-File:       LICENSE
+Author:             Brian Robertson <raposa.msscripting@gmail.com>
+Maintainer:         Brian Robertson <raposa.msscripting@gmail.com>
+Category:           FileSystem
+Synopsis:           Tagging system
+Description:        Tagging system
+Stability:          experimental
+Tested-With:        GHC==6.12.3
+Build-Type:         Simple
+Cabal-Version:      >=1.8.0.6
+data-files:			LICENSE
+
+Executable mssbot
+  Main-is:          main.hs
+  Build-Depends:    base >= 4 && <= 5,
+                    sqlite >= 0.5.2,
+                    directory >= 1.1.0.0,
+                    cmdargs >= 0.7,
+                    SHA >= 1.5.0.0,
+                    bytestring >= 0.9.1.10
+
