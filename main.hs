@@ -113,23 +113,23 @@ newDBHelper dir alreadyexists= do
 findIncTag _ [] = ""
 findIncTag old (x:xs) = concat [" INNER JOIN ", x, " ON ", x, ".hash=", old, ".hash", (findIncTag x xs)]
 
+connectDB :: (String -> SQLiteHandle -> IO String) -> IO String
+connectDB f = finddb >>= (\curdb -> if curdb == "" then return "No databases are accessable.\n" else
+              (openConnection $ curdb++dbdir++dbname) >>= (\h -> f curdb h >>= (\r -> closeConnection h >> return r)))
+
 mux :: Opts -> IO String
 
-mux (Add hashes tags) = do
-    curdb <- finddb
-    if curdb == "" then return "No databases are accessable.\n" else do
-        h <- openConnection $ curdb++dbdir++dbname
-        fullhashes <- fullHashes h hashes
-        addTags h tags fullhashes
-        updateTags h tags fullhashes
-        closeConnection h
-        return "Tags added.\n"
+mux (Add hashes tags) = connectDB $ \curdb h -> do
+    fullhashes <- fullHashes h hashes
+    addTags h tags fullhashes
+    updateTags h tags fullhashes
+    closeConnection h
+    return "Tags added.\n"
+    
 
 mux (Rm hashes tags) = return $ "rm " ++ (show hashes) ++ " " ++ (show tags)
 
-mux (New tags files) = do
-    curdb <- finddb
-    if curdb == "" then return "No databases are accessable.\n" else do
+mux (New tags files) = connectDB $ \curdb h -> do
         files_global <- mapM canonicalizePath files
         existing <- filterM (doesFileExist) files_global
         fileError (filter (\x -> not $ elem x existing) files_global)
@@ -137,38 +137,33 @@ mux (New tags files) = do
         let hashes = map (showDigest) $ map (sha512) contents
         let filehashes = zip existing hashes
         mapM (\(a,b) -> renameFile a (curdb++dbdir++filedir++b)) $ filehashes
-        h <- openConnection $ curdb++dbdir++dbname
         mapM (\(a,b) -> execStatement_ h $ "INSERT INTO files VALUES ('"++b++"','"++(extension a)++"','"++(unwords tags)++"','"++a++"')") $ filehashes
         addTags h tags hashes
         updateTags h tags hashes
-        closeConnection h
         return "Files added.\n"
+        
 
 mux (Del noconf hashes) = return $ "del " ++ (show noconf) ++ " " ++ (show hashes)
 
-mux (Find hashonly nottags tags) = do
-  curdb <- finddb
-  if curdb == "" then return "No databases are accessable.\n" else do
-    h <- openConnection $ curdb++dbdir++dbname
-    found <- either (\_ -> [""]) ((map ((if hashonly then head else ((curdb++dbdir)++) . concat).init.map snd)).head.map (filter ((all (not . flip elem nottags)).words.last.map (snd)))) <$> execStatement h ("SELECT files.hash, files.ext, files.tags FROM files" ++ findIncTag "files" tags)
-    closeConnection h
+mux (Find hashonly nottags tags) = connectDB $ \curdb h -> do
+    found <- either (\_ -> [""]) 
+                    ((map 
+                        ((if hashonly then head else ((curdb++dbdir)++) . concat).init.map snd)
+                        ).head.map 
+                            (filter ((all (not . flip elem nottags)).words.last.map (snd))))
+                    <$> execStatement h ("SELECT files.hash, files.ext, files.tags FROM files" ++ findIncTag "files" tags)
     return $ unlines found
+    
 
-mux (List []) = do
-  curdb <- finddb
-  if curdb == "" then return "No databases are accessable.\n" else do
-    h <- openConnection $ curdb++dbdir++dbname
+mux (List []) = connectDB $ \curdb h -> do
     found <- either (\_ -> [""]) (head.map (map (head.map (snd)))) <$> execStatement h ("SELECT name FROM sqlite_master WHERE type='table' AND name<>'files'")
-    closeConnection h
     return $ (head found) ++ (concat $ map (", "++) $ tail found) ++ "\n"
+    
 
-mux (List hash) = do
-  curdb <- finddb
-  if curdb == "" then return "No databases are accessable.\n" else do
-    h <- openConnection $ curdb++dbdir++dbname
+mux (List hash) = connectDB $ \curdb h -> do
     found <- either (\_ -> [""]) (words.head.head.map (map (head.map (snd)))) <$> execStatement h ("SELECT tags FROM files WHERE hash LIKE '" ++ hash ++ "%'")
-    closeConnection h
     return $ (head found) ++ (concat $ map (", "++) $ tail found) ++ "\n"
+    
 
 mux (Listdb []) = do
     dir <- getCurrentDirectory
