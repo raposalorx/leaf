@@ -39,9 +39,7 @@ listdb = Listdb {dir = def &= args &= typ "DIR"} &= help "List all databases wit
 newdb = Newdb {dir = def &= args &= typ "DIR"} &= help "Create a new database at DIR. If no directory is specified, use the current directory."
 deldb = Deldb {noconfirm = def &= help "Don't ask for confirmation.", dir = def &= args &= typ "DIR"} &= help "Delete the database at DIR. If no directory is specified, use the current directory."
 
-mode = cmdArgsMode $ modes [add,rm,new,del,findtags,list, listdb,newdb,deldb] &= help "Maintain tags for files" &= program "tagit" &= summary "Tagit v0.0"
-
--- sha512 $ Data.ByteString.Lazy.Char8.pack "blah"
+mode = cmdArgsMode $ modes [add,rm,new,del,findtags,list, listdb,newdb,deldb] &= help "Maintain tags for files" &= program "tagit" &= summary "Tagit v0.5"
 
 finddb :: IO String
 finddb = do
@@ -66,11 +64,16 @@ listdb_ dir = do
 extension :: String -> String
 extension s = if head s == '.' || notElem '.' s then "" else '.': (reverse $ takeWhile (/='.') $ reverse s)
 
+getSql :: SQLiteResult a => SQLiteHandle -> String -> ([[Row a]] -> [String]) -> IO [String]
+getSql h q f = either (\_ -> [""]) f <$> execStatement h q
+
+pullSelect = map (snd . head) . head
+
 allTags :: SQLiteHandle -> IO [String]
-allTags h = either (\_ -> [""]) (map (snd . head) . head) <$> execStatement h "SELECT name FROM sqlite_master WHERE type='table' AND name<>'files'"
+allTags h = getSql h "SELECT name FROM sqlite_master WHERE type='table' AND name<>'files'" pullSelect
 
 fullHash :: SQLiteHandle -> String -> IO [String]
-fullHash h part = either (\_ -> [""]) (map (snd.head) . head) <$> execStatement h ("SELECT hash FROM files WHERE hash LIKE '"++part++"%'")
+fullHash h part = getSql h ("SELECT hash FROM files WHERE hash LIKE '"++part++"%'") pullSelect
 
 fullHashes :: SQLiteHandle -> [String] -> IO [String]
 fullHashes h (part:parts) = do
@@ -90,7 +93,7 @@ fileError (f:fs) = do
 
 updateTags _ _ [] = return ()
 updateTags h tags (hash:hashs) = do
-    curtags <- either (\_ -> [""]) (words.snd.head.head.head) <$> execStatement h ("SELECT tags FROM files WHERE hash='"++hash++"'")
+    curtags <- getSql h ("SELECT tags FROM files WHERE hash='"++hash++"'") (words.snd.head.head.head)
     execStatement_ h $ "UPDATE files SET tags='"++(unwords $ union curtags tags)++"' WHERE hash='"++hash++"'"
     updateTags h tags hashs
 
@@ -146,22 +149,23 @@ mux (New tags files) = connectDB $ \curdb h -> do
 mux (Del noconf hashes) = return $ "del " ++ (show noconf) ++ " " ++ (show hashes)
 
 mux (Find hashonly nottags tags) = connectDB $ \curdb h -> do
-    found <- either (\_ -> [""]) 
-                    ((map 
-                        ((if hashonly then head else ((curdb++dbdir)++) . concat).init.map snd)
-                        ).head.map 
-                            (filter ((all (not . flip elem nottags)).words.last.map (snd))))
-                    <$> execStatement h ("SELECT files.hash, files.ext, files.tags FROM files" ++ findIncTag "files" tags)
+    found <- getSql h ("SELECT files.hash, files.ext, files.tags FROM files" ++ findIncTag "files" tags) $
+                    (map 
+                      ((if hashonly then head else ((curdb++dbdir)++) . concat).init.map snd)).head.map
+                        (filter
+                          ((all
+                            (not . flip elem nottags)
+                          ).words.last.map snd))
     return $ unlines found
     
 
 mux (List []) = connectDB $ \curdb h -> do
-    found <- either (\_ -> [""]) (head.map (map (head.map (snd)))) <$> execStatement h ("SELECT name FROM sqlite_master WHERE type='table' AND name<>'files'")
+    found <- getSql h "SELECT name FROM sqlite_master WHERE type='table' AND name<>'files'" $ head.map (map (head.map snd))
     return $ (head found) ++ (concat $ map (", "++) $ tail found) ++ "\n"
     
 
 mux (List hash) = connectDB $ \curdb h -> do
-    found <- either (\_ -> [""]) (words.head.head.map (map (head.map (snd)))) <$> execStatement h ("SELECT tags FROM files WHERE hash LIKE '" ++ hash ++ "%'")
+    found <- getSql h ("SELECT tags FROM files WHERE hash LIKE '" ++ hash ++ "%'") $ words.head.head.map (map (head.map snd))
     return $ (head found) ++ (concat $ map (", "++) $ tail found) ++ "\n"
     
 
