@@ -1,16 +1,15 @@
 {-# LANGUAGE DeriveDataTypeable #-}
-import Database.SQLite
 import qualified Data.ByteString.Lazy.Char8 as C8
 import Data.Digest.Pure.SHA
 import System.Console.CmdArgs
-import System.Directory
 import Data.Functor
-import Data.List
 import Control.Monad
+import Database.SQLite
+import System.Directory
 
-dbdir = "/.leaf/"
-dbname = "leaf"
-filedir = "/files/"
+import Constants
+import FileHelper
+import DBHelper
 
 data Opts = Add {hashes :: [String], tags :: [String]}
             | Rm {hashes :: [String], tags :: [String]}
@@ -40,85 +39,6 @@ newdb = Newdb {dir = def &= args &= typ "DIR"} &= help "Create a new database at
 deldb = Deldb {noconfirm = def &= help "Don't ask for confirmation.", dir = def &= args &= typ "DIR"} &= help "Delete the database at DIR. If no directory is specified, use the current directory."
 
 mode = cmdArgsMode $ modes [add,rm,new,del,findtags,list, listdb,newdb,deldb] &= help "Maintain tags for files" &= program "tagit" &= summary "Tagit v0.5"
-
-finddb :: IO String
-finddb = do
-    d <- getCurrentDirectory
-    finddbhelper d
-    where
-    finddbhelper dir = do
-        isdb <- doesDirectoryExist $ dir ++ dbdir
-        parent <- canonicalizePath $ dir ++ "/.."
-        if parent/=dir then if isdb then return dir else finddbhelper parent else return $ if isdb then dir else ""
-
-listdb_ :: String -> IO [String]
-listdb_ dir = do
-    isdb <- doesDirectoryExist $ dir ++ dbdir
-    parent <- canonicalizePath $ dir ++ "/.."
-    if parent/=dir then if isdb then do 
-        parentdbs <- listdb_ parent
-        return $ dir:parentdbs
-        else listdb_ parent
-        else return $ if isdb then [dir] else []
-
-extension :: String -> String
-extension s = if head s == '.' || notElem '.' s then "" else '.': (reverse $ takeWhile (/='.') $ reverse s)
-
-getSql :: SQLiteResult a => SQLiteHandle -> String -> ([[Row a]] -> [String]) -> IO [String]
-getSql h q f = either (\_ -> [""]) f <$> execStatement h q
-
-pullSelect = map (snd . head) . head
-
-allTags :: SQLiteHandle -> IO [String]
-allTags h = getSql h "SELECT name FROM sqlite_master WHERE type='table' AND name<>'files'" pullSelect
-
-fullHash :: SQLiteHandle -> String -> IO [String]
-fullHash h part = getSql h ("SELECT hash FROM files WHERE hash LIKE '"++part++"%'") pullSelect
-
-fullHashes :: SQLiteHandle -> [String] -> IO [String]
-fullHashes h (part:parts) = do
-    fullhash <- fullHash h part
-    rest <- fullHashes h parts
-    if length fullhash > 1 then do
-        putStrLn $ part++" is ambiguous between\n"++(unlines fullhash)
-        return [""]
-        else if head fullhash /= "" then return $ (head fullhash):rest else do
-            putStrLn $ part++" does not exist."
-            return rest
-
-fileError [] = return ()
-fileError (f:fs) = do
-    putStrLn $ f++" doesn't exist."
-    fileError fs
-
-updateTags _ _ [] = return ()
-updateTags h tags (hash:hashs) = do
-    curtags <- getSql h ("SELECT tags FROM files WHERE hash='"++hash++"'") (words.snd.head.head.head)
-    execStatement_ h $ "UPDATE files SET tags='"++(unwords $ union curtags tags)++"' WHERE hash='"++hash++"'"
-    updateTags h tags hashs
-
-addTags _ [] _ = return ()
-addTags h (t:ts) hashes = do
-    alltags <- allTags h
-    if notElem t alltags then execStatement_ h $ "CREATE TABLE "++t++" ( hash text )" else return $ Just ""
-    mapM (\a -> execStatement_ h $ "INSERT INTO "++t++" VALUES ('"++a++"')") hashes
-    addTags h ts hashes
-
-newDBHelper dir alreadyexists= do
-      if alreadyexists then return "Database already exists here.\n" else do
-        createDirectory $ dir++dbdir
-        createDirectory $ dir++dbdir++filedir
-        h <- openConnection $ dir++dbdir++dbname
-        execStatement_ h "CREATE TABLE files ( hash text, ext text, tags longtext, location text)"
-        closeConnection h
-        return ""
-
-findIncTag _ [] = ""
-findIncTag old (x:xs) = concat [" INNER JOIN ", x, " ON ", x, ".hash=", old, ".hash", (findIncTag x xs)]
-
-connectDB :: (String -> SQLiteHandle -> IO String) -> IO String
-connectDB f = finddb >>= (\curdb -> if curdb == "" then return "No databases are accessable.\n" else
-              (openConnection $ curdb++dbdir++dbname) >>= (\h -> f curdb h >>= (\r -> closeConnection h >> return r)))
 
 mux :: Opts -> IO String
 
@@ -171,7 +91,7 @@ mux (List hash) = connectDB $ \curdb h -> do
 
 mux (Listdb []) = do
     dir <- getCurrentDirectory
-    dbs <- listdb_ dir
+    dbs <- listalldb dir
     if (length dbs) > 0 then
         return $ init $ foldl (\a b -> b ++ (',':a)) "" dbs
         else return "No databases are accessable."
@@ -180,7 +100,7 @@ mux (Listdb dir) = do
     exists <- doesDirectoryExist dir
     if exists then do
         candir <- canonicalizePath dir
-        dbs <- listdb_ candir
+        dbs <- listalldb candir
         if (length dbs) > 0 then
             return $ init $ foldl (\a b -> b ++ (',':a)) "" dbs
             else return "No databases are accessable."
