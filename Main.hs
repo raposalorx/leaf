@@ -76,7 +76,8 @@ mux (Del noconf hashes) = connectDB $ \curdb h -> do
   fullfilenames <- map (\(a,b) -> a++b) <$> zip fullhashes <$> map concat <$> 
                       mapM (\a -> getSql h ("SELECT ext FROM files WHERE hash='"++a++"'") $ ((\x -> [x]).snd.head.head.head)) fullhashes
   y <- if noconf then return True else
-    putStr ("Are you sure you want to delete:\n"++(unlines fullfilenames)++"y/(n)") >> hFlush stdout >> getChar >>= return.('y'==)
+    putStr ("Are you sure you want to delete (the files will actually be deleted, not just removed from the database; please make a copy if you wish to keep the actual file.):\n"
+            ++(unlines fullfilenames)++"y/(n)") >> hFlush stdout >> getChar >>= return.('y'==)
   if not y then return "\n" else do
     putStr "\n"
     curtags <- mapM (curTags h) fullhashes
