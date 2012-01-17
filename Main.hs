@@ -27,20 +27,21 @@ data Opts = Add {hashes :: [String], tags :: [String]}
             | Deldb {noconfirm :: Bool, dir :: String}
             | Mergedb {noconfirm :: Bool, sourcedir :: String, destdir :: String}
             | Rmredundancies {noconfirm :: Bool}
+            | Cleandb {dir :: String}
             deriving (Show, Data, Typeable)
 
-add = Add {hashes = def &= help "File to add tags too. You may specify more than one." &= typ "HASHS", tags = def &= args &= typ "TAGS"} &= help "Add tags."
-rm = Rm {hashes = def &= help "File to remove tags from. You may specify more than one." &= typ "HASHS", tags = def &= args &= typ "TAGS"} &= help "Remove tags."
-new = New {tags = def &= help "Tag to add to the file you're adding. You may specify more than one." &= typ "TAGS", files = def &= args &= typ "FILES"} &= help "Add a file to the tagging database."
+add = Add {hashes = def &= help "File(s) to add tags too." &= typ "HASHS", tags = def &= args &= typ "TAGS"} &= help "Add tags."
+rm = Rm {hashes = def &= help "File(s) to remove tags from." &= typ "HASHS", tags = def &= args &= typ "TAGS"} &= help "Remove tags."
+new = New {tags = def &= help "Tag(s) to add to the file you're adding." &= typ "TAGS", files = def &= args &= typ "FILES"} &= help "Add a file to the tagging database."
 del = Del {noconfirm = def &= help "Don't ask for confirmation.", hashes = def &= args &= typ "HASHES"} &= help "Delete a file from the tagging database."
-findtags = Find {hashonly = def &= help "Only return the hash.", nottag = def &= help "Exclude files with tag. You may specify more than one." &= typ "TAGS", tags = def &= help "Include files with tag. You may specify more than one." &= typ "TAGS"} &= help "Find tags."
+findtags = Find {hashonly = def &= help "Only return the hash.", nottag = def &= help "Exclude files with tag(s)." &= typ "TAGS", tags = def &= help "Include files with tag(s)." &= typ "TAGS"} &= help "Find tags."
 list = List {hash = def &= args} &= help "List tags."
 
-listdb = Listdb {dir = def &= args &= typ "DIR"} &= help "List all databases within reach of DIR. If no directory is specified, use the current directory."
-newdb = Newdb {dir = def &= args &= typ "DIR"} &= help "Create a new database at DIR. If no directory is specified, use the current directory."
+listdb = Listdb {dir = def &= args &= typ "DIR"}-- &= help "List all databases within reach of DIR."
+newdb = Newdb {dir = def &= args &= typ "DIR"}-- &= help "Create a new database at DIR."
 deldb = Deldb {noconfirm = def &= help "Don't ask for confirmation.", dir = def &= args &= typ "DIR"} &= help "Delete the database at DIR. If no directory is specified, use the current directory."
 
-mode = cmdArgsMode $ modes [add,rm,new,del,findtags,list, listdb,newdb,deldb] &= help "Maintain tags for files" &= program "tagit" &= summary "Tagit v0.5"
+mode = cmdArgsMode $ modes [add,rm,new,del,findtags,list,listdb,newdb] &= help "Maintain tags for files" &= program "leaf" &= summary "Leaf v0.5"
 
 mux :: Opts -> IO String
 
@@ -64,7 +65,7 @@ mux (New tags files) = connectDB $ \curdb h -> do
         contents <- mapM C8.readFile existing
         let hashes = map (showDigest) $ map (sha512) contents
         let filehashes = zip existing hashes
-        mapM (\(a,b) -> renameFile a (curdb++dbdir++filedir++b)) filehashes
+        mapM (\(a,b) -> renameFile a (curdb++dbdir++filedir++b++(extension a))) filehashes
         mapM (\(a,b) -> execStatement_ h $ "INSERT INTO files VALUES ('"++b++"','"++(extension a)++"','"++(unwords tags)++"','"++a++"')") filehashes
         addTags h tags hashes
         updateTags h tags hashes
@@ -93,7 +94,7 @@ mux (Del noconf hashes) = connectDB $ \curdb h -> do
 mux (Find hashonly nottags tags) = connectDB $ \curdb h -> do
     found <- getSql h ("SELECT files.hash, files.ext, files.tags FROM files" ++ findIncTag "files" tags) $
                     (map 
-                      ((if hashonly then head else ((curdb++dbdir)++) . concat).init.map snd)).head.map
+                      ((if hashonly then head else ((curdb++dbdir++filedir)++) . concat).init.map snd)).head.map
                         (filter
                           ((all
                             (not . flip elem nottags)
