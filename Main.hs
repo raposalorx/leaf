@@ -73,8 +73,10 @@ mux (New tags files) = connectDB $ \curdb h -> do
 
 mux (Del noconf hashes) = connectDB $ \curdb h -> do
   fullhashes <- fullHashes h hashes
+  fullfilenames <- map (\(a,b) -> a++b) <$> zip fullhashes <$> map concat <$> 
+                      mapM (\a -> getSql h ("SELECT ext FROM files WHERE hash='"++a++"'") $ ((\x -> [x]).snd.head.head.head)) fullhashes
   y <- if noconf then return True else
-    putStr ("Are you sure you want to delete:\n"++(unlines fullhashes)++"y/(n)") >> hFlush stdout >> getChar >>= return.('y'==)
+    putStr ("Are you sure you want to delete:\n"++(unlines fullfilenames)++"y/(n)") >> hFlush stdout >> getChar >>= return.('y'==)
   if not y then return "\n" else do
     putStr "\n"
     curtags <- mapM (curTags h) fullhashes
@@ -84,6 +86,7 @@ mux (Del noconf hashes) = connectDB $ \curdb h -> do
                             concat $ map (\(a,b) -> map (\c -> (c,b)) a) $ zip curtags fullhashes
     mapM (\(a,b) -> rmHashs h [a] b) tagsnhashs
     mapM (\a -> execStatement_ h $ "DELETE FROM files WHERE hash='"++a++"'") fullhashes
+    mapM (\a -> removeFile (curdb++dbdir++filedir++a)) fullhashes
     return "Sucessfully deleted.\n"
 
 mux (Find hashonly nottags tags) = connectDB $ \curdb h -> do
