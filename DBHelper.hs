@@ -3,11 +3,14 @@ module DBHelper
   connectDB,
   getSql,
   allTags,
+  curTags,
   fullHashes,
   updateTags,
   addTags,
   newDBHelper,
-  findIncTag
+  findIncTag,
+  rmHashs,
+  rmTags
 ) where
 
 import Database.SQLite
@@ -30,10 +33,14 @@ pullSelect = map (snd . head) . head
 allTags :: SQLiteHandle -> IO [String]
 allTags h = getSql h "SELECT name FROM sqlite_master WHERE type='table' AND name<>'files'" pullSelect
 
+curTags :: SQLiteHandle -> String -> IO [String]
+curTags h hash = getSql h ("SELECT tags FROM files WHERE hash='"++hash++"'") (words.snd.head.head.head)
+
 fullHash :: SQLiteHandle -> String -> IO [String]
 fullHash h part = getSql h ("SELECT hash FROM files WHERE hash LIKE '"++part++"%'") pullSelect
 
 fullHashes :: SQLiteHandle -> [String] -> IO [String]
+fullHashes h [] = return []
 fullHashes h (part:parts) = do
     fullhash <- fullHash h part
     rest <- fullHashes h parts
@@ -46,7 +53,7 @@ fullHashes h (part:parts) = do
 
 updateTags _ _ [] = return ()
 updateTags h tags (hash:hashs) = do
-    curtags <- getSql h ("SELECT tags FROM files WHERE hash='"++hash++"'") (words.snd.head.head.head)
+    curtags <- curTags h hash
     execStatement_ h $ "UPDATE files SET tags='"++(unwords $ union curtags tags)++"' WHERE hash='"++hash++"'"
     updateTags h tags hashs
 
@@ -56,6 +63,17 @@ addTags h (t:ts) hashes = do
     if notElem t alltags then execStatement_ h $ "CREATE TABLE "++t++" ( hash text )" else return $ Just ""
     mapM (\a -> execStatement_ h $ "INSERT INTO "++t++" VALUES ('"++a++"')") hashes
     addTags h ts hashes
+
+rmTags _ _ [] = return ()
+rmTags h tags (hash:hashs) = do
+  curtags <- curTags h hash
+  execStatement_ h $ "UPDATE files SET tags='"++(unwords $ filter (not . flip elem tags) curtags)++"' WHERE hash='"++hash++"'"
+  rmTags h tags hashs
+
+rmHashs _ [] _ = return ()
+rmHashs h (t:ts) hashs = do
+  mapM (\a -> execStatement_ h $ "DELETE FROM "++t++" WHERE hash='"++a++"'") hashs
+  rmHashs h ts hashs
 
 newDBHelper dir alreadyexists= do
       if alreadyexists then return "Database already exists here.\n" else do

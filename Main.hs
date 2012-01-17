@@ -6,6 +6,8 @@ import Data.Functor
 import Control.Monad
 import Database.SQLite
 import System.Directory
+import IO
+import Data.List
 
 import Constants
 import FileHelper
@@ -46,11 +48,14 @@ mux (Add hashes tags) = connectDB $ \curdb h -> do
     fullhashes <- fullHashes h hashes
     addTags h tags fullhashes
     updateTags h tags fullhashes
-    closeConnection h
     return "Tags added.\n"
     
 
-mux (Rm hashes tags) = return $ "rm " ++ (show hashes) ++ " " ++ (show tags)
+mux (Rm hashes tags) = connectDB $ \curdb h -> do
+  fullhashes <- fullHashes h hashes
+  rmTags h tags fullhashes
+  rmHashs h tags fullhashes
+  return "Tags removed.\n"
 
 mux (New tags files) = connectDB $ \curdb h -> do
         files_global <- mapM canonicalizePath files
@@ -59,14 +64,27 @@ mux (New tags files) = connectDB $ \curdb h -> do
         contents <- mapM C8.readFile existing
         let hashes = map (showDigest) $ map (sha512) contents
         let filehashes = zip existing hashes
-        mapM (\(a,b) -> renameFile a (curdb++dbdir++filedir++b)) $ filehashes
-        mapM (\(a,b) -> execStatement_ h $ "INSERT INTO files VALUES ('"++b++"','"++(extension a)++"','"++(unwords tags)++"','"++a++"')") $ filehashes
+        mapM (\(a,b) -> renameFile a (curdb++dbdir++filedir++b)) filehashes
+        mapM (\(a,b) -> execStatement_ h $ "INSERT INTO files VALUES ('"++b++"','"++(extension a)++"','"++(unwords tags)++"','"++a++"')") filehashes
         addTags h tags hashes
         updateTags h tags hashes
         return "Files added.\n"
         
 
-mux (Del noconf hashes) = return $ "del " ++ (show noconf) ++ " " ++ (show hashes)
+mux (Del noconf hashes) = connectDB $ \curdb h -> do
+  fullhashes <- fullHashes h hashes
+  y <- if noconf then return True else
+    putStr ("Are you sure you want to delete:\n"++(unlines fullhashes)++"y/(n)") >> hFlush stdout >> getChar >>= return.('y'==)
+  if not y then return "\n" else do
+    putStr "\n"
+    curtags <- mapM (curTags h) fullhashes
+    let tagsnhashs = map (\a -> (fst $ head a, map (snd) a)) $ 
+                        groupBy (\(a,b) (c,d) -> a==c) $
+                          sortBy (\(a,b) (c,d) -> compare a c ) $
+                            concat $ map (\(a,b) -> map (\c -> (c,b)) a) $ zip curtags fullhashes
+    mapM (\(a,b) -> rmHashs h [a] b) tagsnhashs
+    mapM (\a -> execStatement_ h $ "DELETE FROM files WHERE hash='"++a++"'") fullhashes
+    return "Sucessfully deleted.\n"
 
 mux (Find hashonly nottags tags) = connectDB $ \curdb h -> do
     found <- getSql h ("SELECT files.hash, files.ext, files.tags FROM files" ++ findIncTag "files" tags) $
@@ -93,8 +111,8 @@ mux (Listdb []) = do
     dir <- getCurrentDirectory
     dbs <- listalldb dir
     if (length dbs) > 0 then
-        return $ init $ foldl (\a b -> b ++ (',':a)) "" dbs
-        else return "No databases are accessable."
+        return $ (init $ foldl (\a b -> b ++ (',':a)) "" dbs)++"\n"
+        else return "No databases are accessable.\n"
 
 mux (Listdb dir) = do
     exists <- doesDirectoryExist dir
@@ -120,6 +138,7 @@ mux (Newdb dir) = do
 mux (Deldb noconfirm dir) = return $ "deldb " ++ (show noconfirm) ++ " " ++ dir
 
 main = do
+    hSetBuffering stdin NoBuffering
     a <- cmdArgsRun mode
     out <- mux a
     putStr out

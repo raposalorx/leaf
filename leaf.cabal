@@ -19,8 +19,8 @@ library
                     DBHelper
   build-depends:    base, directory, sqlite
 
-Executable mssbot
+Executable leaf
   Main-Is:          Main.hs
   other-modules:    FileHelper, Constants, DBHelper
   Build-Depends:    base >= 4 && <= 5,
-                    cmdargs, SHA, bytestring, directory, sqlite
+                    cmdargs, SHA, bytestring, directory, sqlite, haskell98
