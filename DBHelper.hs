@@ -46,7 +46,7 @@ fullHashes h (part:parts) = do
     rest <- fullHashes h parts
     if length fullhash > 1 then do
         putStrLn $ part++" is ambiguous between\n"++(unlines fullhash)
-        return [""]
+        return []
         else if head fullhash /= "" then return $ (head fullhash):rest else do
             putStrLn $ part++" does not exist."
             return rest

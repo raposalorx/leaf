@@ -70,26 +70,26 @@ mux (New tags files) = connectDB $ \curdb h -> do
         addTags h tags hashes
         updateTags h tags hashes
         return "Files added.\n"
-        
 
 mux (Del noconf hashes) = connectDB $ \curdb h -> do
   fullhashes <- fullHashes h hashes
-  fullfilenames <- map (\(a,b) -> a++b) <$> zip fullhashes <$> map concat <$> 
-                      mapM (\a -> getSql h ("SELECT ext FROM files WHERE hash='"++a++"'") $ ((\x -> [x]).snd.head.head.head)) fullhashes
-  y <- if noconf then return True else
-    putStr ("Are you sure you want to delete (the files will actually be deleted, not just removed from the database; please make a copy if you wish to keep the actual file.):\n"
-            ++(unlines fullfilenames)++"y/(n)") >> hFlush stdout >> getChar >>= return.('y'==)
-  if not y then return "\n" else do
-    putStr "\n"
-    curtags <- mapM (curTags h) fullhashes
-    let tagsnhashs = map (\a -> (fst $ head a, map (snd) a)) $ 
-                        groupBy (\(a,b) (c,d) -> a==c) $
-                          sortBy (\(a,b) (c,d) -> compare a c ) $
-                            concat $ map (\(a,b) -> map (\c -> (c,b)) a) $ zip curtags fullhashes
-    mapM (\(a,b) -> rmHashs h [a] b) tagsnhashs
-    mapM (\a -> execStatement_ h $ "DELETE FROM files WHERE hash='"++a++"'") fullhashes
-    mapM (\a -> removeFile (curdb++dbdir++filedir++a)) fullhashes
-    return "Sucessfully deleted.\n"
+  if fullhashes == [] then return "" else do
+    fullfilenames <- map (\(a,b) -> a++b) <$> zip fullhashes <$> map concat <$> 
+                        mapM (\a -> getSql h ("SELECT ext FROM files WHERE hash='"++a++"'") $ ((\x -> [x]).snd.head.head.head)) fullhashes
+    y <- if noconf then return True else
+      putStr ("Are you sure you want to delete (the files will actually be deleted, not just removed from the database; please make a copy if you wish to keep the actual file.):\n"
+              ++(unlines fullfilenames)++"y/(n)") >> hFlush stdout >> getChar >>= return.('y'==)
+    if not y then return "\n" else do
+      putStr "\n"
+      curtags <- mapM (curTags h) fullhashes
+      let tagsnhashs = map (\a -> (fst $ head a, map (snd) a)) $ 
+                          groupBy (\(a,b) (c,d) -> a==c) $
+                            sortBy (\(a,b) (c,d) -> compare a c ) $
+                              concat $ map (\(a,b) -> map (\c -> (c,b)) a) $ zip curtags fullhashes
+      mapM (\(a,b) -> rmHashs h [a] b) tagsnhashs
+      mapM (\a -> execStatement_ h $ "DELETE FROM files WHERE hash='"++a++"'") fullhashes
+      mapM (\a -> removeFile (curdb++dbdir++filedir++a)) fullfilenames
+      return "Sucessfully deleted.\n"
 
 mux (Find hashonly nottags tags) = connectDB $ \curdb h -> do
     found <- getSql h ("SELECT files.hash, files.ext, files.tags FROM files" ++ findIncTag "files" tags) $
@@ -101,15 +101,16 @@ mux (Find hashonly nottags tags) = connectDB $ \curdb h -> do
                           ).words.last.map snd))
     return $ unlines found
     
-
+-- sort options
+-- for i in $(leaf find -h); do echo $i'\n'$(leaf list $i)'\n'; done
 mux (List []) = connectDB $ \curdb h -> do
-    found <- getSql h "SELECT name FROM sqlite_master WHERE type='table' AND name<>'files'" $ head.map (map (head.map snd))
-    return $ (head found) ++ (concat $ map (", "++) $ tail found) ++ "\n"
+    found <- getSql h "SELECT name FROM sqlite_master WHERE type='table' AND name<>'files'" $ sort.head.map (map (head.map snd))
+    return $ (head found) ++ (concat $ map (" "++) $ tail found) ++ "\n"
     
 
 mux (List hash) = connectDB $ \curdb h -> do
-    found <- getSql h ("SELECT tags FROM files WHERE hash LIKE '" ++ hash ++ "%'") $ words.head.head.map (map (head.map snd))
-    return $ (head found) ++ (concat $ map (", "++) $ tail found) ++ "\n"
+    found <- getSql h ("SELECT tags FROM files WHERE hash LIKE '" ++ hash ++ "%'") $ sort.words.head.head.map (map (head.map snd))
+    return $ (head found) ++ (concat $ map (" "++) $ tail found) ++ "\n"
     
 
 mux (Listdb []) = do
