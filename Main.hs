@@ -61,7 +61,7 @@ mux (Rm hashes tags) = connectDB $ \curdb h -> do
 mux (New tags files) = connectDB $ \curdb h -> do
         files_global <- mapM canonicalizePath files
         existing <- filterM (doesFileExist) files_global
-        fileError (filter (\x -> not $ elem x existing) files_global)
+        fileError (filter (\x -> not $ x `elem` existing) files_global)
         contents <- mapM C8.readFile existing
         let hashes = map (showDigest) $ map (sha512) contents
         let filehashes = zip existing hashes
@@ -96,8 +96,7 @@ mux (Find hashonly nottags tags) = connectDB $ \curdb h -> do
                     (map 
                       ((if hashonly then head else ((curdb++dbdir++filedir)++) . concat).init.map snd)).head.map
                         (filter
-                          ((all
-                            (not . flip elem nottags)
+                          ((all (not.(`elem` nottags))
                           ).words.last.map snd))
     return $ unlines found
     
