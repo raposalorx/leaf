@@ -54,20 +54,20 @@ fullHashes h (part:parts) = do
 updateTags _ _ [] = return ()
 updateTags h tags (hash:hashs) = do
     curtags <- curTags h hash
-    execStatement_ h $ "UPDATE files SET tags='"++(unwords $ union curtags tags)++"' WHERE hash='"++hash++"'"
+    execStatement_ h $ "UPDATE files SET tags='"++(unwords $ curtags `union` tags)++"' WHERE hash='"++hash++"'"
     updateTags h tags hashs
 
 addTags _ [] _ = return ()
 addTags h (t:ts) hashes = do
     alltags <- allTags h
-    if notElem t alltags then execStatement_ h $ "CREATE TABLE "++t++" ( hash text )" else return $ Just ""
+    if t `notElem` alltags then execStatement_ h $ "CREATE TABLE "++t++" ( hash text )" else return $ Just ""
     mapM (\a -> execStatement_ h $ "INSERT INTO "++t++" VALUES ('"++a++"')") hashes
     addTags h ts hashes
 
 rmTags _ _ [] = return ()
 rmTags h tags (hash:hashs) = do
   curtags <- curTags h hash
-  execStatement_ h $ "UPDATE files SET tags='"++(unwords $ filter (not . flip elem tags) curtags)++"' WHERE hash='"++hash++"'"
+  execStatement_ h $ "UPDATE files SET tags='"++(unwords $ filter (not . (`elem` tags)) curtags)++"' WHERE hash='"++hash++"'"
   rmTags h tags hashs
 
 rmHashs _ [] _ = return ()

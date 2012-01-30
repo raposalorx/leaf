@@ -31,7 +31,7 @@ listalldb dir = do
         else return $ if isdb then [dir] else []
 
 extension :: String -> String
-extension s = if head s == '.' || notElem '.' s then "" else '.': (reverse $ takeWhile (/='.') $ reverse s)
+extension s = if head s == '.' || '.' `notElem` s then "" else '.': (reverse $ takeWhile (/='.') $ reverse s)
 
 fileError [] = return ()
 fileError (f:fs) = do
